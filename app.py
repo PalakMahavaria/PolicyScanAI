@@ -51,3 +51,4 @@ if prompt := st.chat_input("Ask a question about your policies..."):
             error_message = f"An error occurred: {e}. Please ensure your API key is correct and you have an active internet connection."
             st.error(error_message)
             st.session_state.messages.append({"role": "assistant", "content": error_message})
+            # This is a test comment to force redeploy
