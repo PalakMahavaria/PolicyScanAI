@@ -15,36 +15,36 @@ from langchain.schema import HumanMessage, AIMessage
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 if not GOOGLE_API_KEY:
-    raise ValueError("GOOGLE_API_KEY not found in environment variables.") # Updated message
-
-# Configuration
-CHROMA_PATH = "chroma_db"
+    # This error message is now more accurate for deployment
+    raise ValueError("GOOGLE_API_KEY not found in environment variables. Please set it in Streamlit Cloud secrets.")
 
 # --- Debugging additions start here ---
 print("DEBUG: rag_pipeline.py - Script started.")
+print(f"DEBUG: GOOGLE_API_KEY is present (length: {len(GOOGLE_API_KEY) if GOOGLE_API_KEY else 0}).")
+# DO NOT print the full API key for security reasons.
+# Just checking its presence or length is enough for debugging.
+
+# Configuration
+CHROMA_PATH = "chroma_db"
 print(f"DEBUG: CHROMA_PATH is set to: {CHROMA_PATH}")
 
 # Define the embedding model
-embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+# Explicitly pass the API key here
+embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=GOOGLE_API_KEY)
 print("DEBUG: Embedding model initialized.")
 
 def get_rag_chain():
     print("DEBUG: Entering get_rag_chain function.")
     try:
-        # --- TEMPORARY TEST: Try to import chromadb and create an in-memory instance ---
-        # This helps us see if the core chromadb library can even be imported
-        # before trying to load your specific persisted data.
-        import chromadb # This is the line that was failing before
-        print("DEBUG: chromadb imported successfully (temporary test).")
-        # Try creating a temporary in-memory client
-        temp_client = chromadb.Client()
-        print("DEBUG: In-memory Chroma client created successfully (temporary test).")
-        # If these lines execute, the issue is with loading from persist_directory.
-        # If it fails here, the core chromadb library itself has an issue.
+        # The temporary chromadb import test is no longer needed as sqlite3 issue is fixed.
+        # You can remove or comment out these lines if you added them:
+        # import chromadb
+        # print("DEBUG: chromadb imported successfully (temporary test).")
+        # temp_client = chromadb.Client()
+        # print("DEBUG: In-memory Chroma client created successfully (temporary test).")
 
         # --- Original logic to load from persisted directory ---
         print(f"DEBUG: Attempting to load ChromaDB from: {CHROMA_PATH}")
-        # This is line 40, where the error was previously pointing
         db = Chroma(
             persist_directory=CHROMA_PATH,
             embedding_function=embeddings
@@ -52,7 +52,8 @@ def get_rag_chain():
         print("DEBUG: ChromaDB loaded successfully.")
 
         # Define the language model
-        llm = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0.3)
+        # Explicitly pass the API key here too
+        llm = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0.3, google_api_key=GOOGLE_API_KEY)
         print("DEBUG: LLM initialized.")
 
         # Define the prompt template
