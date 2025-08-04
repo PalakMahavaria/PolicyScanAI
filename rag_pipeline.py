@@ -1,91 +1,88 @@
-import os
-#from dotenv import load_dotenv
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
-from langchain_community.vectorstores import Chroma
-from langchain.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnablePassthrough
+# rag_pipeline.py
 
-# Load environment variables
-#load_dotenv()
+import os
+# from dotenv import load_dotenv # Ensure this is still commented out or removed
+
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_community.vectorstores import Chroma
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain.chains import create_retrieval_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_core.prompts import ChatPromptTemplate
+from langchain.schema import HumanMessage, AIMessage
+
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 if not GOOGLE_API_KEY:
-    raise ValueError("GOOGLE_API_KEY not found in .env file.")
+    raise ValueError("GOOGLE_API_KEY not found in environment variables.") # Updated message
 
 # Configuration
 CHROMA_PATH = "chroma_db"
 
-# Prompt template for the RAG chain
-PROMPT_TEMPLATE = """
-You are an expert assistant for insurance policy analysis. Your task is to answer questions about insurance policies.
-Use the provided context strictly to answer the question. If the answer is not in the provided context, state that you cannot answer from the given information.
-Provide the answer in a clear, concise, and structured format.
-Always cite the source document names (e.g., "Source: [document_name.pdf]") for each piece of information you provide.
-If multiple sources contribute to an answer, list all relevant sources.
+# --- Debugging additions start here ---
+print("DEBUG: rag_pipeline.py - Script started.")
+print(f"DEBUG: CHROMA_PATH is set to: {CHROMA_PATH}")
 
-Context:
-{context}
-
-Question: {question}
-
-Answer:
-"""
+# Define the embedding model
+embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+print("DEBUG: Embedding model initialized.")
 
 def get_rag_chain():
-    # Create embedding function
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
+    print("DEBUG: Entering get_rag_chain function.")
+    try:
+        # --- TEMPORARY TEST: Try to import chromadb and create an in-memory instance ---
+        # This helps us see if the core chromadb library can even be imported
+        # before trying to load your specific persisted data.
+        import chromadb # This is the line that was failing before
+        print("DEBUG: chromadb imported successfully (temporary test).")
+        # Try creating a temporary in-memory client
+        temp_client = chromadb.Client()
+        print("DEBUG: In-memory Chroma client created successfully (temporary test).")
+        # If these lines execute, the issue is with loading from persist_directory.
+        # If it fails here, the core chromadb library itself has an issue.
 
-    # Load the Chroma DB
-    db = Chroma(
-        persist_directory=CHROMA_PATH,
-        embedding_function=embeddings
-    )
+        # --- Original logic to load from persisted directory ---
+        print(f"DEBUG: Attempting to load ChromaDB from: {CHROMA_PATH}")
+        # This is line 40, where the error was previously pointing
+        db = Chroma(
+            persist_directory=CHROMA_PATH,
+            embedding_function=embeddings
+        )
+        print("DEBUG: ChromaDB loaded successfully.")
 
-    # Retrieve relevant documents
-    retriever = db.as_retriever(search_kwargs={"k": 3}) # Retrieve top 3 relevant documents
+        # Define the language model
+        llm = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0.3)
+        print("DEBUG: LLM initialized.")
 
-    # Initialize the LLM
-    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.2)
+        # Define the prompt template
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", """You are an AI assistant for insurance policy queries.
+            Answer the user's question based ONLY on the provided context.
+            If the answer is not found in the context, politely state that you don't have enough information.
+            Provide clear and concise answers.
+            Context: {context}"""),
+            ("human", "{input}")
+        ])
+        print("DEBUG: Prompt template created.")
 
-    # Create the RAG chain
-    # 1. Format docs for context
-    def format_docs(docs):
-        formatted_strings = []
-        for i, doc in enumerate(docs):
-            source = doc.metadata.get("source", "Unknown Source")
-            formatted_strings.append(f"--- Document {i+1} (Source: {os.path.basename(source)}) ---\n{doc.page_content}")
-        return "\n\n".join(formatted_strings)
+        # Create the document chain
+        document_chain = create_stuff_documents_chain(llm, prompt)
+        print("DEBUG: Document chain created.")
 
-    # 2. Define the RAG chain
-    rag_chain = (
-        {"context": retriever | format_docs, "question": RunnablePassthrough()}
-        | ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
-        | llm
-        | StrOutputParser()
-    )
-    return rag_chain
+        # Create the retriever
+        retriever = db.as_retriever(search_kwargs={"k": 3}) # Retrieve top 3 relevant documents
+        print("DEBUG: Retriever created.")
 
-if __name__ == "__main__":
-    print("Testing the RAG pipeline...")
-    rag_chain = get_rag_chain()
+        # Create the retrieval chain
+        retrieval_chain = create_retrieval_chain(retriever, document_chain)
+        print("DEBUG: Retrieval chain created.")
 
-    # Test queries
-    queries = [
-        "What is the definition of 'Accident' in the policies?",
-        "What are the exclusions for pre-existing diseases?",
-        "Can I get coverage for dental treatment?",
-        "What is the grace period for policy renewal?",
-        "What is not covered under health insurance?",
-        "Which policy covers domestic travel?",
-        "List items that are subsumed into costs of treatment?",
-        "What is the definition of AYUSH Hospital?"
-    ]
+        return retrieval_chain
 
-    for i, query in enumerate(queries):
-        print(f"\n--- Query {i+1}: {query} ---")
-        response = rag_chain.invoke(query)
-        print(response)
-        print("-" * 50)
+    except Exception as e:
+        print(f"ERROR: An error occurred in get_rag_chain: {e}")
+        # Re-raise the exception so Streamlit still catches it and shows the traceback
+        raise
 
-    print("\nRAG pipeline testing complete.")
+print("DEBUG: rag_pipeline.py - Script finished setup.")
